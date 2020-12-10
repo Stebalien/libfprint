@@ -1,6 +1,84 @@
 This file lists notable changes in each release. For the full history of all
 changes, see ChangeLog.
 
+2020-12-01: v1.90.6 release
+
+This release is primarily a bugfix release for some older issues.
+
+The major change is that fp_print_deserialize will now correctly return a
+sunken reference rather than a floating one. Most API users will have
+assumed this was true, and issues could happen at a later point.
+If any API user worked around this libfprint bug, they will now leak the
+returned print.
+
+Highlights:
+ * Object reference management fixes for FpPrint and identify
+ * Fixed issues that caused problem on non-x86 machines (#236)
+ * Fix building with older GLib versions
+ * synaptics: Support PID 00e7
+ * goodix: Fix issue with long USB packages
+
+
+2020-12-01: v1.90.5 release
+
+The 1.90.4 release caused a major regression, as it included a USB hub in
+UDEV the autosupend rule list.
+
+Highlights:
+ * Remove USB hub from udev autosupend rules
+ * synaptics: Add PID 0x00c9 which is used in some HP laptops
+
+
+2020-11-27: v1.90.4 release
+
+This release contains a number of important bugfixes. On the feature side,
+the USB hotplug support was improved. A lot of drivers received fixes and
+improvements.
+
+Highlights:
+ * Work around GUsb cancellation issue
+ * Redefine internal image device state machine for more robustness
+ * Add public finger-status reporting to FpDevice
+ * Rework device removal API to be convenient (#330)
+ * Enable powersave for unsupported USB devices
+ * Improvements to examples
+ * synaptics: Support identify operation
+ * synaptics: Fix possible crash when the interrupt transfer is resubmitted
+ * synaptics: Add support for PIDs 0x00f9, 0x00fc and 0x00c2
+ * elan: Add PID 0x0c4d to supported device list
+ * aes3k: Fix driver and add CI test (#306)
+ * uru4000: Fix reference counting of image transfer
+ * vfs301: Fix driver and add CI test (#320)
+
+2020-06-08: v1.90.3 release
+
+This release mostly contains support for a number of new match-on-chip
+devices. Most notable is the addition of the new goodixmoc driver.
+Currently the driver has the small caveat that we have no strategy to
+garbage collect old prints yet (a simple strategy could be implemented
+in fprintd).
+
+Highlights:
+ * New goodixmoc driver supporting Goodix USB devices:
+   27C6:5840
+   27C6:6496
+   27C6:60A2
+ * Newly added support for Synaptics device:
+   06CB:00E9
+   06CB:00DF
+ * Fixed an issue with Synaptics devices sometimes not working at boot
+ * Fix issue with aes3k driver (#306)
+
+2020-06-08: v1.90.2 release
+
+This release contains a large amount of bug and regression fixes. These
+are not listed explicitly, but affect the majority of drivers.
+
+Highlights:
+ * A patch for nbis required for some sensors was accidentally dropped in
+   an earlier release. Users of these sensors/drivers (aes1610, aes2501,
+   aes2550, aes1660, aes2660, elan, upektc_img) need to re-enroll (#142).
+
 2019-11-20: v1.90.1 release
 
 This release fixes a lot of the regressions introduced in 1.90.0. Please note

@@ -86,6 +86,60 @@ is_driver_allowed (const gchar *driver)
   return FALSE;
 }
 
+typedef struct
+{
+  FpContext *context;
+  FpDevice  *device;
+} RemoveDeviceData;
+
+static gboolean
+remove_device_idle_cb (RemoveDeviceData *data)
+{
+  FpContextPrivate *priv = fp_context_get_instance_private (data->context);
+  guint idx = 0;
+
+  g_return_val_if_fail (g_ptr_array_find (priv->devices, data->device, &idx), G_SOURCE_REMOVE);
+
+  g_signal_emit (data->context, signals[DEVICE_REMOVED_SIGNAL], 0, data->device);
+  g_ptr_array_remove_index_fast (priv->devices, idx);
+
+  g_free (data);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+remove_device (FpContext *context, FpDevice *device)
+{
+  RemoveDeviceData *data;
+
+  data = g_new (RemoveDeviceData, 1);
+  data->context = context;
+  data->device = device;
+
+  g_idle_add ((GSourceFunc) remove_device_idle_cb, data);
+}
+
+static void
+device_remove_on_notify_open_cb (FpContext *context, GParamSpec *pspec, FpDevice *device)
+{
+  remove_device (context, device);
+}
+
+static void
+device_removed_cb (FpContext *context, FpDevice *device)
+{
+  gboolean open = FALSE;
+
+  g_object_get (device, "open", &open, NULL);
+
+  /* Wait for device close if the device is currently still open. */
+  if (open)
+    g_signal_connect_swapped (device, "notify::open", (GCallback) device_remove_on_notify_open_cb, context);
+  else
+    remove_device (context, device);
+}
+
 static void
 async_device_init_done_cb (GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
@@ -110,6 +164,9 @@ async_device_init_done_cb (GObject *source_object, GAsyncResult *res, gpointer u
     }
 
   g_ptr_array_add (priv->devices, device);
+
+  g_signal_connect_swapped (device, "removed", (GCallback) device_removed_cb, context);
+
   g_signal_emit (context, signals[DEVICE_ADDED_SIGNAL], 0, device);
 }
 
@@ -189,12 +246,7 @@ usb_device_removed_cb (FpContext *self, GUsbDevice *device, GUsbContext *usb_ctx
         continue;
 
       if (fpi_device_get_usb_device (dev) == device)
-        {
-          g_signal_emit (self, signals[DEVICE_REMOVED_SIGNAL], 0, dev);
-          g_ptr_array_remove_index_fast (priv->devices, i);
-
-          return;
-        }
+        fpi_device_remove (dev);
     }
 }
 
@@ -210,7 +262,8 @@ fp_context_finalize (GObject *object)
   g_clear_object (&priv->cancellable);
   g_clear_pointer (&priv->drivers, g_array_unref);
 
-  g_object_run_dispose (G_OBJECT (priv->usb_ctx));
+  if (priv->usb_ctx)
+    g_object_run_dispose (G_OBJECT (priv->usb_ctx));
   g_clear_object (&priv->usb_ctx);
 
   G_OBJECT_CLASS (fp_context_parent_class)->finalize (object);
@@ -247,6 +300,10 @@ fp_context_class_init (FpContextClass *klass)
    * @device: A #FpDevice
    *
    * This signal is emitted when a fingerprint reader is removed.
+   *
+   * It is guaranteed that the device has been closed before this signal
+   * is emitted. See the #FpDevice removed signal documentation for more
+   * information.
    **/
   signals[DEVICE_REMOVED_SIGNAL] = g_signal_new ("device-removed",
                                                  G_TYPE_FROM_CLASS (klass),
@@ -289,7 +346,7 @@ fp_context_init (FpContext *self)
   priv->usb_ctx = g_usb_context_new (&error);
   if (!priv->usb_ctx)
     {
-      fp_warn ("Could not initialise USB Subsystem: %s", error->message);
+      g_message ("Could not initialise USB Subsystem: %s", error->message);
     }
   else
     {
@@ -342,7 +399,8 @@ fp_context_enumerate (FpContext *context)
   priv->enumerated = TRUE;
 
   /* USB devices are handled from callbacks */
-  g_usb_context_enumerate (priv->usb_ctx);
+  if (priv->usb_ctx)
+    g_usb_context_enumerate (priv->usb_ctx);
 
   /* Handle Virtual devices based on environment variables */
   for (i = 0; i < priv->drivers->len; i++)
